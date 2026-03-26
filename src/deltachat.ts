@@ -285,6 +285,12 @@ export class DeltaChatClient {
         return;
       }
 
+      // Ensure bot config is set on existing accounts too
+      await this.dc.rpc.batchSetConfig(this.accountId, {
+        bot: "1",
+        show_emails: "2",
+        displayname: this.config.displayName,
+      });
       // Reconfigure with potentially updated password
       await this.dc.rpc.addOrUpdateTransport(this.accountId, this.buildTransportConfig());
       return;
@@ -297,13 +303,13 @@ export class DeltaChatClient {
     if (!this.dc) throw new Error("Client not started");
 
     this.accountId = await this.dc.rpc.addAccount();
+    await this.dc.rpc.batchSetConfig(this.accountId, {
+      bot: "1",
+      // Accept all messages including non-Delta Chat emails
+      show_emails: "2",
+      displayname: this.config.displayName,
+    });
     await this.dc.rpc.addOrUpdateTransport(this.accountId, this.buildTransportConfig());
-    await this.dc.rpc.setConfig(this.accountId, "bot", "1");
-    await this.dc.rpc.setConfig(
-      this.accountId,
-      "displayname",
-      this.config.displayName,
-    );
   }
 
   private buildTransportConfig() {
