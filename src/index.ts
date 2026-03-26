@@ -8,7 +8,7 @@ export default function register(api: any) {
   // Serve the SecureJoin invite page on the gateway dashboard
   api.registerHttpRoute({
     path: "/deltachat/invite",
-    auth: "gateway",
+    auth: "plugin",
     match: "prefix",
     handler: async (req: IncomingMessage, res: ServerResponse) => {
       if (req.url?.endsWith("/qr.svg")) {
