@@ -1,13 +1,6 @@
-import { appendFileSync } from "node:fs";
 import type { T } from "@deltachat/jsonrpc-client";
 import { DeltaChatClient } from "./deltachat.js";
 import type { DeltaChatConfig } from "./types.js";
-
-function debugLog(msg: string): void {
-  try {
-    appendFileSync("/tmp/deltachat-debug.log", `[${new Date().toISOString()}] ${msg}\n`);
-  } catch { /* ignore */ }
-}
 
 // --- Types for inbound context ---
 
@@ -167,15 +160,10 @@ export function createDeltaChatChannel() {
 
     config: {
       listAccountIds: (_cfg: OpenClawConfig): string[] => {
-        debugLog("listAccountIds called");
         return ["default"];
       },
 
-      resolveAccount: (cfg: OpenClawConfig, accountId?: string | null): ResolvedAccount => {
-        const result = resolveAccountFromConfig(cfg, accountId);
-        debugLog(`resolveAccount called, id=${accountId}, email=${result.email}`);
-        return result;
-      },
+      resolveAccount: resolveAccountFromConfig,
 
       isEnabled: (account: ResolvedAccount): boolean => account.enabled,
 
@@ -217,11 +205,8 @@ export function createDeltaChatChannel() {
 
     gateway: {
       startAccount: async (ctx: ChannelGatewayContext): Promise<void> => {
-        debugLog(`startAccount called, accountId=${ctx.accountId}`);
-
         // Guard against double-start
         if (client) {
-          debugLog("startAccount: client already running, stopping first");
           await client.stop();
           client = null;
         }
@@ -251,7 +236,6 @@ export function createDeltaChatChannel() {
           await client.start();
         } catch (err) {
           log.error(`Failed to start Delta Chat client: ${err}`);
-          debugLog(`startAccount failed: ${err}`);
           client = null;
           return;
         }
