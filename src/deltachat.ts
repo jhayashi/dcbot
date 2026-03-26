@@ -259,6 +259,17 @@ export class DeltaChatClient {
     return this.dc.rpc.getFullChatById(this.accountId, chatId);
   }
 
+  /**
+   * Get the SecureJoin invite link and QR code SVG for this bot.
+   * Users can scan the QR code or open the invite link in Delta Chat
+   * to establish a verified, encrypted connection with the bot.
+   */
+  async getSecureJoinInvite(): Promise<{ inviteLink: string; svg: string }> {
+    if (!this.dc) throw new Error("Client not started");
+    const [inviteLink, svg] = await this.dc.rpc.getChatSecurejoinQrCodeSvg(this.accountId, null);
+    return { inviteLink, svg };
+  }
+
   // --- Private ---
 
   private resolveDataDir(): string {

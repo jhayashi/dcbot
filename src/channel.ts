@@ -1,3 +1,6 @@
+import { writeFile, mkdir } from "node:fs/promises";
+import { resolve } from "node:path";
+import { homedir } from "node:os";
 import type { T } from "@deltachat/jsonrpc-client";
 import { DeltaChatClient } from "./deltachat.js";
 import type { DeltaChatConfig } from "./types.js";
@@ -241,6 +244,24 @@ export function createDeltaChatChannel() {
         }
 
         log.info(`Started Delta Chat client for ${account.email}`);
+
+        // Generate and publish SecureJoin invite link + QR code
+        try {
+          const { inviteLink, svg } = await client.getSecureJoinInvite();
+          log.info(`SecureJoin invite link: ${inviteLink}`);
+
+          // Save QR code SVG to data dir for external access
+          const dataDir = account.dataDir.startsWith("~")
+            ? account.dataDir.replace("~", homedir())
+            : account.dataDir;
+          const qrDir = resolve(dataDir);
+          await mkdir(qrDir, { recursive: true });
+          const qrPath = resolve(qrDir, "invite-qr.svg");
+          await writeFile(qrPath, svg);
+          log.info(`SecureJoin QR code saved to ${qrPath}`);
+        } catch (err) {
+          log.error(`Failed to generate SecureJoin invite: ${err}`);
+        }
 
         // Listen for send failures
         client.onEvent("MsgFailed", (...args: unknown[]) => {
