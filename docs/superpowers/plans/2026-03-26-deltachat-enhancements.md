@@ -4,7 +4,7 @@
 
 **Goal:** Harden the Delta Chat channel plugin with access control, setup UX, graceful shutdown, and documentation improvements.
 
-**Architecture:** Six independent enhancement areas, each producing a working commit. Tasks are ordered by dependency (access control before setup wizard, since the wizard should reference the allow-from flow), but most can be worked in parallel.
+**Architecture:** Seven enhancement areas, each producing a working commit. Tasks are ordered by dependency (access control before setup wizard, since the wizard should reference the allow-from flow), but most can be worked in parallel. Note: Task 3 (graceful shutdown) and Task 7 (reconnect resilience) both modify `src/deltachat.ts` in nearby areas — work them sequentially to avoid merge conflicts.
 
 **Tech Stack:** TypeScript, @deltachat/jsonrpc-client, OpenClaw Plugin SDK (ChannelPlugin, ChannelSecurityAdapter, ChannelSetupAdapter, ChannelPairingAdapter)
 
@@ -30,9 +30,11 @@ The bot currently responds to anyone who connects. We need to integrate with Ope
 
 **Context:** OpenClaw's security model uses `ChannelSecurityAdapter.resolveDmPolicy()` to determine who can DM the bot. The `MsgContext` already includes `From`/`SenderId` which OpenClaw core uses for policy checks. However, the `dispatchReplyWithBufferedBlockDispatcher` may already enforce this — we need to verify. If it does, this task is just adding `OwnerAllowFrom` to the MsgContext. If not, we need to implement the `security` adapter.
 
+**Design decision:** When no `allowFrom` is configured, default to allow-all (current behavior). This keeps zero-config working. Users can restrict access by adding `allowFrom` to their config.
+
 **Files:**
-- Modify: `src/channel.ts:324-336` (MsgContext construction)
-- Modify: `src/channel.ts:169-174` (add security adapter to plugin)
+- Modify: `src/channel.ts:326-336` (MsgContext construction)
+- Modify: `src/channel.ts:387-394` (add `security` adapter near existing `groups`/`threading` adapters)
 - Test: `tests/channel.test.ts`
 
 **Research first:**
@@ -51,10 +53,12 @@ If needed, add a `security` adapter to the channel plugin that reads `dmPolicy` 
 
 - [ ] **Step 3: Pass OwnerAllowFrom in MsgContext**
 
-In `channel.ts` where we build `msgContext`, add:
+In `channel.ts` where we build `msgContext` (inside the `startAccount` closure where `ctx` is in scope), add:
 ```typescript
 // If allowFrom is configured, pass it so OpenClaw can enforce access control
-const allowFrom = cfg.channels?.deltachat?.allowFrom;
+const channels = ctx.cfg.channels as Record<string, unknown> | undefined;
+const dc = (channels?.deltachat ?? {}) as Record<string, unknown>;
+const allowFrom = dc.allowFrom as string[] | undefined;
 if (allowFrom) {
   msgContext.OwnerAllowFrom = allowFrom;
 }
@@ -88,13 +92,14 @@ The `email`/`password` config path exists but hasn't been tested end-to-end sinc
 
 - [ ] **Step 1: Add `configure()` call for regular email accounts**
 
-In `createAccount()`, after `addOrUpdateTransport()`, call `configure()` to fully set up the transport (IMAP/SMTP autoconfig):
+In `createAccount()` at `src/deltachat.ts:309`, the existing `if (this.config.email && this.config.password)` branch calls `addOrUpdateTransport()` but not `configure()`. Add the `configure()` call after `addOrUpdateTransport()` within that same branch, then log the configured address:
 ```typescript
-if (this.config.email && this.config.password && this.config.email !== "auto") {
-    // ... existing addOrUpdateTransport code ...
-    await this.dc.rpc.configure(this.accountId);
-}
+// Inside the existing if (this.config.email && this.config.password) block, after addOrUpdateTransport:
+await this.dc.rpc.configure(this.accountId);
+const addr = await this.dc.rpc.getConfig(this.accountId, "addr");
+console.log(`[deltachat] Configured account: ${addr}`);
 ```
+Note: when `email` is `"auto"`, `password` is not set, so this branch is skipped and the chatmail else-branch runs. No extra `!== "auto"` check needed.
 
 - [ ] **Step 2: Track account type in inviteState**
 
