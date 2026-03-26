@@ -115,11 +115,12 @@ interface OutboundDeliveryResult {
 interface ResolvedAccount {
   id: string;
   label: string;
-  email: string;
-  password: string;
+  email?: string;
+  password?: string;
   displayName: string;
   dataDir: string;
   rpcServerPath: string;
+  chatmailServer: string;
   enabled: boolean;
 }
 
@@ -128,12 +129,13 @@ function resolveAccountFromConfig(cfg: OpenClawConfig, _accountId?: string | nul
   const dc = (channels?.deltachat ?? {}) as Record<string, unknown>;
   return {
     id: "default",
-    label: (dc.displayName as string) ?? "Delta Chat Bot",
-    email: (dc.email as string) ?? "",
-    password: (dc.password as string) ?? "",
-    displayName: (dc.displayName as string) ?? "OpenClaw Bot",
+    label: (dc.displayName as string) ?? "OC",
+    email: dc.email as string | undefined,
+    password: dc.password as string | undefined,
+    displayName: (dc.displayName as string) ?? "OC",
     dataDir: (dc.dataDir as string) ?? "~/.openclaw/deltachat-data",
     rpcServerPath: (dc.rpcServerPath as string) ?? "deltachat-rpc-server",
+    chatmailServer: (dc.chatmailServer as string) ?? "nine.testrun.org",
     enabled: (dc.enabled as boolean) ?? true,
   };
 }
@@ -176,20 +178,15 @@ export function createDeltaChatChannel() {
 
       isEnabled: (account: ResolvedAccount): boolean => account.enabled,
 
-      isConfigured: (account: ResolvedAccount): boolean =>
-        Boolean(account.email && account.password),
+      isConfigured: (_account: ResolvedAccount): boolean => true,
 
-      unconfiguredReason: (account: ResolvedAccount): string => {
-        if (!account.email) return "Missing email address";
-        if (!account.password) return "Missing password";
-        return "";
-      },
+      unconfiguredReason: (_account: ResolvedAccount): string => "",
 
       describeAccount: (account: ResolvedAccount) => ({
         accountId: account.id,
         name: account.label,
         enabled: account.enabled,
-        configured: Boolean(account.email && account.password),
+        configured: true,
       }),
     },
 
@@ -232,6 +229,7 @@ export function createDeltaChatChannel() {
           displayName: account.displayName,
           dataDir: account.dataDir,
           rpcServerPath: account.rpcServerPath,
+          chatmailServer: account.chatmailServer,
         };
 
         const log = ctx.log ?? {

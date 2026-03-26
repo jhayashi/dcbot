@@ -288,58 +288,69 @@ export class DeltaChatClient {
     if (accounts.length > 0) {
       this.accountId = accounts[0];
 
-      // Check if email changed
-      const currentAddr = await this.dc.rpc.getConfig(this.accountId, "addr");
-      if (currentAddr && currentAddr !== this.config.email) {
-        // Email changed — remove old account and create new one
-        await this.dc.rpc.removeAccount(this.accountId);
-        await this.createAndConfigureAccount();
+      // Check if already configured (has a working account)
+      const isConfigured = await this.dc.rpc.isConfigured(this.accountId);
+      if (isConfigured) {
+        // Just update display name and bot settings
+        await this.dc.rpc.batchSetConfig(this.accountId, {
+          bot: "1",
+          show_emails: "2",
+          displayname: this.config.displayName,
+        });
+        const addr = await this.dc.rpc.getConfig(this.accountId, "addr");
+        console.log(`[deltachat] Using existing account: ${addr}`);
         return;
       }
 
-      // Ensure bot config is set on existing accounts too
+      // Account exists but not configured — remove and start fresh
+      await this.dc.rpc.removeAccount(this.accountId);
+    }
+
+    await this.createAccount();
+  }
+
+  private async createAccount(): Promise<void> {
+    if (!this.dc) throw new Error("Client not started");
+
+    this.accountId = await this.dc.rpc.addAccount();
+
+    if (this.config.email && this.config.password) {
+      // Use explicit credentials (e.g. for a regular IMAP account)
+      console.log(`[deltachat] Configuring account with ${this.config.email}`);
       await this.dc.rpc.batchSetConfig(this.accountId, {
         bot: "1",
         show_emails: "2",
         displayname: this.config.displayName,
       });
-      // Reconfigure with potentially updated password
-      await this.dc.rpc.addOrUpdateTransport(this.accountId, this.buildTransportConfig());
-      return;
+      await this.dc.rpc.addOrUpdateTransport(this.accountId, {
+        addr: this.config.email,
+        password: this.config.password,
+        imapServer: null,
+        imapPort: null,
+        imapSecurity: null,
+        imapUser: null,
+        smtpServer: null,
+        smtpPort: null,
+        smtpSecurity: null,
+        smtpUser: null,
+        smtpPassword: null,
+        certificateChecks: null,
+        oauth2: null,
+      });
+    } else {
+      // Auto-create a chatmail account
+      const chatmailUrl = `DCACCOUNT:https://${this.config.chatmailServer}/new`;
+      console.log(`[deltachat] Creating chatmail account on ${this.config.chatmailServer}`);
+      await this.dc.rpc.setConfigFromQr(this.accountId, chatmailUrl);
+      await this.dc.rpc.batchSetConfig(this.accountId, {
+        bot: "1",
+        show_emails: "2",
+        displayname: this.config.displayName,
+      });
+      await this.dc.rpc.configure(this.accountId);
+      const addr = await this.dc.rpc.getConfig(this.accountId, "addr");
+      console.log(`[deltachat] Created chatmail account: ${addr}`);
     }
-
-    await this.createAndConfigureAccount();
-  }
-
-  private async createAndConfigureAccount(): Promise<void> {
-    if (!this.dc) throw new Error("Client not started");
-
-    this.accountId = await this.dc.rpc.addAccount();
-    await this.dc.rpc.batchSetConfig(this.accountId, {
-      bot: "1",
-      // Accept all messages including non-Delta Chat emails
-      show_emails: "2",
-      displayname: this.config.displayName,
-    });
-    await this.dc.rpc.addOrUpdateTransport(this.accountId, this.buildTransportConfig());
-  }
-
-  private buildTransportConfig() {
-    return {
-      addr: this.config.email,
-      password: this.config.password,
-      imapServer: null,
-      imapPort: null,
-      imapSecurity: null,
-      imapUser: null,
-      smtpServer: null,
-      smtpPort: null,
-      smtpSecurity: null,
-      smtpUser: null,
-      smtpPassword: null,
-      certificateChecks: null,
-      oauth2: null,
-    };
   }
 
   private handleServerExit(code: number | null): void {
