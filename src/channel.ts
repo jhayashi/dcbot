@@ -251,12 +251,13 @@ export function createDeltaChatChannel() {
           log.warn("channelRuntime not available — AI dispatch disabled");
         }
 
-        // Start message loop (runs in background until stop)
+        // Start event-based message handler
         const currentClient = client;
-        const loopPromise = currentClient.runMessageLoop(async (msg: T.Message, chat: T.FullChat) => {
+        currentClient.startMessageHandler(async (msg: T.Message, chat: T.FullChat) => {
           if (shouldSkipChat(chat.chatType)) return;
 
           const senderEmail = await currentClient.getContactEmail(msg.fromId);
+          log.info(`Incoming message from ${senderEmail}: "${msg.text.slice(0, 50)}"`);
 
           const inbound = buildInboundContext({
             text: msg.text,
@@ -315,8 +316,6 @@ export function createDeltaChatChannel() {
             },
           });
         });
-
-        loopPromise.catch((err) => log.error(`Message loop crashed: ${err}`));
 
         // Block until stopAccount is called — the gateway expects startAccount
         // to stay alive for the lifetime of the account.

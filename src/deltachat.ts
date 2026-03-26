@@ -113,58 +113,59 @@ export class DeltaChatClient {
     }
   }
 
-  // --- Message loop ---
+  // --- Message handling ---
 
-  async runMessageLoop(
+  /**
+   * Listen for incoming messages via the IncomingMsg event.
+   *
+   * We use the event-based approach instead of waitNextMsgs because
+   * waitNextMsgs only returns "post-messages" (Delta Chat messages),
+   * not regular emails. The IncomingMsg event fires for all messages
+   * that DC assigns to a chat (when show_emails=2).
+   */
+  startMessageHandler(
     handler: (msg: T.Message, chat: T.FullChat) => Promise<void>,
-  ): Promise<void> {
+  ): void {
     if (!this.dc) throw new Error("Client not started");
 
-    while (this.running) {
+    this.dc.on("IncomingMsg", async (_accountId: number, { chatId, msgId }: { chatId: number; msgId: number }) => {
+      if (!this.dc || !this.running) return;
+
       try {
-        // waitNextMsgs blocks until new messages arrive — designed for bots
-        const msgIds = await this.dc.rpc.waitNextMsgs(this.accountId);
+        const msg = await this.dc.rpc.getMessage(this.accountId, msgId);
 
-        for (const msgId of msgIds) {
-          const msg = await this.dc.rpc.getMessage(this.accountId, msgId);
-
-          // Skip system/info messages and self-sent messages
-          if (msg.isInfo || msg.fromId === C.DC_CONTACT_ID_SELF) {
-            await this.dc.rpc.markseenMsgs(this.accountId, [msgId]);
-            continue;
-          }
-
-          const chat = await this.dc.rpc.getFullChatById(
-            this.accountId,
-            msg.chatId,
-          );
-
-          // Auto-accept contact requests so the bot can reply
-          if (chat.isContactRequest) {
-            await this.dc.rpc.acceptChat(this.accountId, msg.chatId);
-          }
-
-          this.inFlightCount++;
-          try {
-            await handler(msg, chat);
-          } catch (err) {
-            console.error("[deltachat] Error handling message:", err);
-          } finally {
-            this.inFlightCount--;
-            if (this.inFlightCount === 0 && this.inFlightResolve) {
-              this.inFlightResolve();
-              this.inFlightResolve = null;
-            }
-          }
-
+        // Skip system/info messages and self-sent messages
+        if (msg.isInfo || msg.fromId === C.DC_CONTACT_ID_SELF) {
           await this.dc.rpc.markseenMsgs(this.accountId, [msgId]);
+          return;
         }
+
+        const chat = await this.dc.rpc.getFullChatById(this.accountId, chatId);
+
+        // Auto-accept contact requests so the bot can reply
+        if (chat.isContactRequest) {
+          await this.dc.rpc.acceptChat(this.accountId, chatId);
+        }
+
+        this.inFlightCount++;
+        try {
+          await handler(msg, chat);
+        } catch (err) {
+          console.error("[deltachat] Error handling message:", err);
+        } finally {
+          this.inFlightCount--;
+          if (this.inFlightCount === 0 && this.inFlightResolve) {
+            this.inFlightResolve();
+            this.inFlightResolve = null;
+          }
+        }
+
+        await this.dc.rpc.markseenMsgs(this.accountId, [msgId]);
       } catch (err) {
-        if (!this.running) break; // Expected error during shutdown
-        console.error("[deltachat] Message loop error:", err);
-        await new Promise((r) => setTimeout(r, 1000)); // Brief pause before retry
+        if (!this.running) return;
+        console.error("[deltachat] Error processing incoming message:", err);
       }
-    }
+    });
   }
 
   // --- Sending ---
