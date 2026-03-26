@@ -122,7 +122,8 @@ export class DeltaChatClient {
 
     while (this.running) {
       try {
-        const msgIds = await this.dc.rpc.getNextMsgs(this.accountId);
+        // waitNextMsgs blocks until new messages arrive — designed for bots
+        const msgIds = await this.dc.rpc.waitNextMsgs(this.accountId);
 
         for (const msgId of msgIds) {
           const msg = await this.dc.rpc.getMessage(this.accountId, msgId);
@@ -137,6 +138,11 @@ export class DeltaChatClient {
             this.accountId,
             msg.chatId,
           );
+
+          // Auto-accept contact requests so the bot can reply
+          if (chat.isContactRequest) {
+            await this.dc.rpc.acceptChat(this.accountId, msg.chatId);
+          }
 
           this.inFlightCount++;
           try {
