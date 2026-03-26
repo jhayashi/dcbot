@@ -247,7 +247,7 @@ export function createDeltaChatChannel() {
           return;
         }
 
-        log.info(`Started Delta Chat client for ${account.email}`);
+        log.info(`Started Delta Chat client for ${account.displayName}`);
 
         // Generate and publish SecureJoin invite link + QR code
         try {
