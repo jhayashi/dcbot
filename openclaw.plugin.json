@@ -1,0 +1,18 @@
+{
+  "id": "channel-deltachat",
+  "kind": "channel",
+  "displayName": "Delta Chat",
+  "description": "Bridge Delta Chat messaging to OpenClaw agents via email",
+  "configSchema": {
+    "type": "object",
+    "required": ["email", "password"],
+    "properties": {
+      "enabled": { "type": "boolean", "default": true },
+      "email": { "type": "string", "description": "Bot email address" },
+      "password": { "type": "string", "description": "Bot email password" },
+      "displayName": { "type": "string", "default": "OpenClaw Bot" },
+      "dataDir": { "type": "string", "default": "~/.openclaw/deltachat-data" },
+      "rpcServerPath": { "type": "string", "default": "deltachat-rpc-server" }
+    }
+  }
+}
