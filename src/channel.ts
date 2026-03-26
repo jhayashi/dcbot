@@ -145,6 +145,8 @@ function resolveAccountFromConfig(cfg: OpenClawConfig, _accountId?: string | nul
 export function createDeltaChatChannel() {
   // Client is created lazily when the gateway starts an account
   let client: DeltaChatClient | null = null;
+  // Used to keep startAccount alive until stopAccount is called
+  let accountStopped: (() => void) | null = null;
 
   return {
     id: "deltachat" as const,
@@ -222,6 +224,10 @@ export function createDeltaChatChannel() {
           debugLog("startAccount: client already running, stopping first");
           await client.stop();
           client = null;
+        }
+        if (accountStopped) {
+          accountStopped();
+          accountStopped = null;
         }
 
         const account = ctx.account;
@@ -327,12 +333,22 @@ export function createDeltaChatChannel() {
         });
 
         loopPromise.catch((err) => log.error(`Message loop crashed: ${err}`));
+
+        // Block until stopAccount is called — the gateway expects startAccount
+        // to stay alive for the lifetime of the account.
+        await new Promise<void>((resolve) => {
+          accountStopped = resolve;
+        });
       },
 
       stopAccount: async (_ctx: ChannelGatewayContext): Promise<void> => {
         if (client) {
           await client.stop();
           client = null;
+        }
+        if (accountStopped) {
+          accountStopped();
+          accountStopped = null;
         }
       },
     },
