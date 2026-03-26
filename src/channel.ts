@@ -138,6 +138,12 @@ function resolveAccountFromConfig(cfg: OpenClawConfig, _accountId?: string | nul
   };
 }
 
+/** Shared state for the invite link/QR, readable by the HTTP route. */
+export const inviteState: { inviteLink: string | null; svg: string | null } = {
+  inviteLink: null,
+  svg: null,
+};
+
 export function createDeltaChatChannel() {
   // Client is created lazily when the gateway starts an account
   let client: DeltaChatClient | null = null;
@@ -247,8 +253,10 @@ export function createDeltaChatChannel() {
 
         // Generate and publish SecureJoin invite link + QR code
         try {
-          const { inviteLink, svg } = await client.getSecureJoinInvite();
-          log.info(`SecureJoin invite link: ${inviteLink}`);
+          const invite = await client.getSecureJoinInvite();
+          inviteState.inviteLink = invite.inviteLink;
+          inviteState.svg = invite.svg;
+          log.info(`SecureJoin invite link: ${invite.inviteLink}`);
 
           // Save QR code SVG to data dir for external access
           const dataDir = account.dataDir.startsWith("~")
@@ -257,7 +265,7 @@ export function createDeltaChatChannel() {
           const qrDir = resolve(dataDir);
           await mkdir(qrDir, { recursive: true });
           const qrPath = resolve(qrDir, "invite-qr.svg");
-          await writeFile(qrPath, svg);
+          await writeFile(qrPath, invite.svg);
           log.info(`SecureJoin QR code saved to ${qrPath}`);
         } catch (err) {
           log.error(`Failed to generate SecureJoin invite: ${err}`);
