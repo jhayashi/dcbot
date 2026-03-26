@@ -5,7 +5,7 @@ import { mkdir } from "node:fs/promises";
 import { StdioDeltaChat, C, type T } from "@deltachat/jsonrpc-client";
 import type { DeltaChatConfig } from "./types.js";
 
-type SessionKey =
+export type SessionKey =
   | { type: "dm"; email: string }
   | { type: "group"; chatId: number };
 
@@ -32,6 +32,7 @@ export class DeltaChatClient {
 
     if (parts[1] === "dm") {
       const email = parts.slice(2).join(":"); // email may contain colons (unlikely but safe)
+      if (!email) return null;
       return { type: "dm", email };
     }
     if (parts[1] === "group") {
@@ -261,21 +262,7 @@ export class DeltaChatClient {
       }
 
       // Reconfigure with potentially updated password
-      await this.dc.rpc.addOrUpdateTransport(this.accountId, {
-        addr: this.config.email,
-        password: this.config.password,
-        imapServer: null,
-        imapPort: null,
-        imapSecurity: null,
-        imapUser: null,
-        smtpServer: null,
-        smtpPort: null,
-        smtpSecurity: null,
-        smtpUser: null,
-        smtpPassword: null,
-        certificateChecks: null,
-        oauth2: null,
-      });
+      await this.dc.rpc.addOrUpdateTransport(this.accountId, this.buildTransportConfig());
       return;
     }
 
@@ -286,7 +273,17 @@ export class DeltaChatClient {
     if (!this.dc) throw new Error("Client not started");
 
     this.accountId = await this.dc.rpc.addAccount();
-    await this.dc.rpc.addOrUpdateTransport(this.accountId, {
+    await this.dc.rpc.addOrUpdateTransport(this.accountId, this.buildTransportConfig());
+    await this.dc.rpc.setConfig(this.accountId, "bot", "1");
+    await this.dc.rpc.setConfig(
+      this.accountId,
+      "displayname",
+      this.config.displayName,
+    );
+  }
+
+  private buildTransportConfig() {
+    return {
       addr: this.config.email,
       password: this.config.password,
       imapServer: null,
@@ -300,13 +297,7 @@ export class DeltaChatClient {
       smtpPassword: null,
       certificateChecks: null,
       oauth2: null,
-    });
-    await this.dc.rpc.setConfig(this.accountId, "bot", "1");
-    await this.dc.rpc.setConfig(
-      this.accountId,
-      "displayname",
-      this.config.displayName,
-    );
+    };
   }
 
   private handleServerExit(code: number | null): void {
