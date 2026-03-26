@@ -63,6 +63,16 @@ export class DeltaChatClient {
       stdio: ["pipe", "pipe", "inherit"],
     });
 
+    // Wait for spawn to succeed or fail before proceeding
+    await new Promise<void>((resolve, reject) => {
+      this.server!.on("error", (err) => {
+        reject(new Error(`Failed to spawn ${this.config.rpcServerPath}: ${err.message}`));
+      });
+      this.server!.on("spawn", () => {
+        resolve();
+      });
+    });
+
     this.server.on("exit", (code) => this.handleServerExit(code));
 
     this.dc = new StdioDeltaChat(this.server.stdin!, this.server.stdout!, true);

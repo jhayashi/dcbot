@@ -227,14 +227,21 @@ export function createDeltaChatChannel() {
           rpcServerPath: account.rpcServerPath,
         };
 
-        client = new DeltaChatClient(config);
-        await client.start();
-
         const log = ctx.log ?? {
           info: (msg: string) => console.log(`[deltachat] ${msg}`),
           warn: (msg: string) => console.warn(`[deltachat] ${msg}`),
           error: (msg: string) => console.error(`[deltachat] ${msg}`),
         };
+
+        client = new DeltaChatClient(config);
+        try {
+          await client.start();
+        } catch (err) {
+          log.error(`Failed to start Delta Chat client: ${err}`);
+          debugLog(`startAccount failed: ${err}`);
+          client = null;
+          return;
+        }
 
         log.info(`Started Delta Chat client for ${account.email}`);
 
