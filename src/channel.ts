@@ -217,6 +217,13 @@ export function createDeltaChatChannel() {
       startAccount: async (ctx: ChannelGatewayContext): Promise<void> => {
         debugLog(`startAccount called, accountId=${ctx.accountId}`);
 
+        // Guard against double-start
+        if (client) {
+          debugLog("startAccount: client already running, stopping first");
+          await client.stop();
+          client = null;
+        }
+
         const account = ctx.account;
         const config: DeltaChatConfig = {
           enabled: account.enabled,

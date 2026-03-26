@@ -7,8 +7,24 @@ Users interact with OpenClaw agents by messaging a bot email address via any Del
 ## Prerequisites
 
 - [OpenClaw](https://openclaw.ai) gateway running
-- [`deltachat-rpc-server`](https://github.com/chatmail/core/releases) on your `$PATH`
-- An email account for the bot
+- [`deltachat-rpc-server`](https://github.com/chatmail/core/releases) on your `$PATH` (see below)
+- An email account for the bot (any IMAP/SMTP provider works; [chatmail](https://delta.chat/chatmail) accounts are fastest)
+
+### Installing deltachat-rpc-server
+
+The easiest way is via pip (ships a prebuilt binary):
+
+```bash
+pip install deltachat-rpc-server
+```
+
+Alternatively, download a prebuilt binary from the [Delta Chat core releases](https://github.com/chatmail/core/releases) and place it on your `$PATH`.
+
+Verify the install:
+
+```bash
+deltachat-rpc-server --version
+```
 
 ## Install
 
