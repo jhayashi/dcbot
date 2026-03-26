@@ -1,5 +1,5 @@
 {
-  "id": "channel-deltachat",
+  "id": "deltachat",
   "kind": "channel",
   "displayName": "Delta Chat",
   "description": "Bridge Delta Chat messaging to OpenClaw agents via email",
