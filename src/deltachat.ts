@@ -78,6 +78,14 @@ export class DeltaChatClient {
     this.dc = new StdioDeltaChat(this.server.stdin!, this.server.stdout!, true);
 
     await this.configureAccount();
+
+    // Log all DC events for debugging
+    this.dc.on("ALL", (accountId: number, event: { kind: string; msg?: string }) => {
+      if (event.kind !== "Info" || !event.msg?.includes("langstrings")) {
+        console.log(`[deltachat] event: ${event.kind} ${event.msg ?? ""}`);
+      }
+    });
+
     await this.dc.rpc.startIo(this.accountId);
     this.running = true;
   }
