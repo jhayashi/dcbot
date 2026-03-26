@@ -1,9 +1,29 @@
-import { writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { homedir } from "node:os";
 import type { T } from "@deltachat/jsonrpc-client";
 import { DeltaChatClient } from "./deltachat.js";
 import type { DeltaChatConfig } from "./types.js";
+
+/**
+ * Read the agent's display name from IDENTITY.md in the workspace.
+ * Falls back to "OC" if not found.
+ */
+async function resolveAgentName(cfg: OpenClawConfig): Promise<string> {
+  try {
+    const agents = cfg.agents as Record<string, unknown> | undefined;
+    const defaults = agents?.defaults as Record<string, unknown> | undefined;
+    const workspace = defaults?.workspace as string | undefined;
+    if (!workspace) return "OC";
+
+    const identityPath = resolve(workspace, "IDENTITY.md");
+    const content = await readFile(identityPath, "utf-8");
+    const match = content.match(/\*\*Name:\*\*\s*(.+)/);
+    return match?.[1]?.trim() || "OC";
+  } catch {
+    return "OC";
+  }
+}
 
 // --- Types for inbound context ---
 
@@ -129,10 +149,10 @@ function resolveAccountFromConfig(cfg: OpenClawConfig, _accountId?: string | nul
   const dc = (channels?.deltachat ?? {}) as Record<string, unknown>;
   return {
     id: "default",
-    label: (dc.displayName as string) ?? "OC",
+    label: "Delta Chat",
     email: dc.email as string | undefined,
     password: dc.password as string | undefined,
-    displayName: (dc.displayName as string) ?? "OC",
+    displayName: "", // resolved async from IDENTITY.md at startup
     dataDir: (dc.dataDir as string) ?? "~/.openclaw/deltachat-data",
     rpcServerPath: (dc.rpcServerPath as string) ?? "deltachat-rpc-server",
     chatmailServer: (dc.chatmailServer as string) ?? "nine.testrun.org",
@@ -222,11 +242,12 @@ export function createDeltaChatChannel() {
         }
 
         const account = ctx.account;
+        const agentName = await resolveAgentName(ctx.cfg);
         const config: DeltaChatConfig = {
           enabled: account.enabled,
           email: account.email,
           password: account.password,
-          displayName: account.displayName,
+          displayName: agentName,
           dataDir: account.dataDir,
           rpcServerPath: account.rpcServerPath,
           chatmailServer: account.chatmailServer,
@@ -247,7 +268,7 @@ export function createDeltaChatChannel() {
           return;
         }
 
-        log.info(`Started Delta Chat client for ${account.displayName}`);
+        log.info(`Started Delta Chat client as "${agentName}"`);
 
         // Generate and publish SecureJoin invite link + QR code
         try {
