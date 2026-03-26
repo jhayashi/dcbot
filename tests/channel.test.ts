@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { buildInboundContext, shouldSkipChat } from "../src/channel.js";
 
 describe("channel", () => {
@@ -35,6 +35,7 @@ describe("channel", () => {
       expect(ctx.text).toBe("Hello bot");
       expect(ctx.sessionKey).toBe("deltachat:dm:alice@example.com");
       expect(ctx.chatType).toBe("direct");
+      expect(ctx.chatId).toBe(10);
       expect(ctx.media).toBeNull();
     });
 
@@ -50,6 +51,7 @@ describe("channel", () => {
 
       expect(ctx.sessionKey).toBe("deltachat:group:42");
       expect(ctx.chatType).toBe("group");
+      expect(ctx.chatId).toBe(42);
     });
 
     it("includes media when file is present", () => {

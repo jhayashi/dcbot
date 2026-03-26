@@ -1,5 +1,6 @@
 import type { T } from "@deltachat/jsonrpc-client";
 import { DeltaChatClient } from "./deltachat.js";
+import type { DeltaChatConfig } from "./types.js";
 
 // --- Types for inbound context ---
 
@@ -8,6 +9,7 @@ export interface InboundContext {
   sessionKey: string;
   senderEmail: string;
   chatType: "direct" | "group";
+  chatId: number;
   media: { path: string; mimeType: string } | null;
 }
 
@@ -38,6 +40,7 @@ export function buildInboundContext(input: InboundInput): InboundContext {
     sessionKey,
     senderEmail: input.senderEmail,
     chatType: isGroup ? "group" : "direct",
+    chatId: input.chatId,
     media:
       input.file && input.fileMime
         ? { path: input.file, mimeType: input.fileMime }
@@ -47,72 +50,197 @@ export function buildInboundContext(input: InboundInput): InboundContext {
 
 // --- Channel Plugin Factory ---
 
-export function createDeltaChatChannel(client: DeltaChatClient) {
-  const dock = {
-    id: "deltachat",
+// Minimal type stubs for OpenClaw SDK types we depend on.
+// These mirror the real SDK types enough for our plugin to compile
+// without importing from openclaw (which is a peerDependency).
+
+type OpenClawConfig = Record<string, unknown>;
+
+interface ChannelGatewayContext {
+  cfg: OpenClawConfig;
+  accountId: string;
+  account: ResolvedAccount;
+  runtime: unknown;
+  abortSignal: AbortSignal;
+  log?: ChannelLogSink;
+  getStatus: () => Record<string, unknown>;
+  setStatus: (next: Record<string, unknown>) => void;
+  channelRuntime?: {
+    reply: {
+      dispatchReplyWithBufferedBlockDispatcher: (params: {
+        ctx: Record<string, unknown>;
+        cfg: OpenClawConfig;
+        dispatcherOptions: {
+          deliver: (payload: { text?: string; mediaUrl?: string }, info: { kind: string }) => Promise<void>;
+          onError?: (err: unknown, info: { kind: string }) => void;
+        };
+        replyOptions?: Record<string, unknown>;
+      }) => Promise<unknown>;
+      finalizeInboundContext: <T extends Record<string, unknown>>(ctx: T) => T;
+    };
+  };
+}
+
+interface ChannelLogSink {
+  info: (msg: string) => void;
+  warn: (msg: string) => void;
+  error: (msg: string) => void;
+  debug?: (msg: string) => void;
+}
+
+interface ChannelOutboundContext {
+  cfg: OpenClawConfig;
+  to: string;
+  text: string;
+  mediaUrl?: string;
+  accountId?: string | null;
+  replyToId?: string | null;
+  threadId?: string | number | null;
+}
+
+interface ChannelGroupContext {
+  cfg: OpenClawConfig;
+  groupId?: string | null;
+  accountId?: string | null;
+  senderId?: string | null;
+}
+
+interface OutboundDeliveryResult {
+  messageId?: string;
+}
+
+interface ResolvedAccount {
+  id: string;
+  label: string;
+  email: string;
+  password: string;
+  displayName: string;
+  dataDir: string;
+  rpcServerPath: string;
+  enabled: boolean;
+}
+
+function resolveAccountFromConfig(cfg: OpenClawConfig, _accountId?: string | null): ResolvedAccount {
+  const channels = cfg.channels as Record<string, unknown> | undefined;
+  const dc = (channels?.deltachat ?? {}) as Record<string, unknown>;
+  return {
+    id: "default",
+    label: (dc.displayName as string) ?? "Delta Chat Bot",
+    email: (dc.email as string) ?? "",
+    password: (dc.password as string) ?? "",
+    displayName: (dc.displayName as string) ?? "OpenClaw Bot",
+    dataDir: (dc.dataDir as string) ?? "~/.openclaw/deltachat-data",
+    rpcServerPath: (dc.rpcServerPath as string) ?? "deltachat-rpc-server",
+    enabled: (dc.enabled as boolean) ?? true,
+  };
+}
+
+export function createDeltaChatChannel() {
+  // Client is created lazily when the gateway starts an account
+  let client: DeltaChatClient | null = null;
+
+  return {
+    id: "deltachat" as const,
+
+    meta: {
+      id: "deltachat" as const,
+      label: "Delta Chat",
+      selectionLabel: "Delta Chat",
+      docsPath: "deltachat",
+      blurb: "Bridge Delta Chat messaging to OpenClaw agents via email",
+    },
+
     capabilities: {
-      chatTypes: ["direct", "group"] as const,
+      chatTypes: ["direct", "group"] as Array<"direct" | "group">,
       media: true,
       blockStreaming: true,
     },
-    outbound: {
-      textChunkLimit: 0,
-    },
-    groups: {
-      resolveRequireMention: () => false,
-    },
-    threading: {
-      resolveReplyToMode: () => "off" as const,
-    },
-  };
-
-  return {
-    id: "deltachat",
-    meta: {
-      label: "Delta Chat",
-      blurb: "Bridge Delta Chat messaging to OpenClaw agents via email",
-    },
-    capabilities: { chatTypes: ["direct", "group"] as const },
-    dock,
 
     config: {
-      listAccountIds: async () => ["default"],
-      resolveAccount: async (_accountId: string) => ({
-        id: "default",
-        label: "Delta Chat Bot",
+      listAccountIds: (_cfg: OpenClawConfig): string[] => {
+        return ["default"];
+      },
+
+      resolveAccount: resolveAccountFromConfig,
+
+      isEnabled: (account: ResolvedAccount): boolean => account.enabled,
+
+      isConfigured: (account: ResolvedAccount): boolean =>
+        Boolean(account.email && account.password),
+
+      unconfiguredReason: (account: ResolvedAccount): string => {
+        if (!account.email) return "Missing email address";
+        if (!account.password) return "Missing password";
+        return "";
+      },
+
+      describeAccount: (account: ResolvedAccount) => ({
+        accountId: account.id,
+        name: account.label,
+        enabled: account.enabled,
+        configured: Boolean(account.email && account.password),
       }),
     },
 
     outbound: {
-      sendText: async (sessionKey: string, text: string) => {
-        const chatId = await client.getChatBySessionKey(sessionKey);
-        await client.sendText(chatId, text);
+      deliveryMode: "direct" as const,
+      textChunkLimit: 0,
+
+      sendText: async (ctx: ChannelOutboundContext): Promise<OutboundDeliveryResult> => {
+        if (!client) throw new Error("Delta Chat client not started");
+        const chatId = await client.getChatBySessionKey(ctx.to);
+        const msgId = await client.sendText(chatId, ctx.text);
+        return { messageId: String(msgId) };
       },
-      sendMedia: async (
-        sessionKey: string,
-        media: { path: string; mimeType: string; filename?: string },
-      ) => {
-        const chatId = await client.getChatBySessionKey(sessionKey);
-        await client.sendFile(chatId, null, media.path, media.filename);
+
+      sendMedia: async (ctx: ChannelOutboundContext & { mediaUrl: string }): Promise<OutboundDeliveryResult> => {
+        if (!client) throw new Error("Delta Chat client not started");
+        const chatId = await client.getChatBySessionKey(ctx.to);
+        const msgId = await client.sendFile(chatId, null, ctx.mediaUrl);
+        return { messageId: String(msgId) };
       },
     },
 
     gateway: {
-      start: async (runtime: { dispatch: (ctx: InboundContext) => Promise<void> }) => {
+      startAccount: async (ctx: ChannelGatewayContext): Promise<void> => {
+        const account = ctx.account;
+        const config: DeltaChatConfig = {
+          enabled: account.enabled,
+          email: account.email,
+          password: account.password,
+          displayName: account.displayName,
+          dataDir: account.dataDir,
+          rpcServerPath: account.rpcServerPath,
+        };
+
+        client = new DeltaChatClient(config);
         await client.start();
+
+        const log = ctx.log ?? {
+          info: (msg: string) => console.log(`[deltachat] ${msg}`),
+          warn: (msg: string) => console.warn(`[deltachat] ${msg}`),
+          error: (msg: string) => console.error(`[deltachat] ${msg}`),
+        };
+
+        log.info(`Started Delta Chat client for ${account.email}`);
 
         // Listen for send failures
         client.onEvent("MsgFailed", (...args: unknown[]) => {
-          console.error("[deltachat] Message send failed:", ...args);
+          log.error(`Message send failed: ${JSON.stringify(args)}`);
         });
 
+        if (!ctx.channelRuntime) {
+          log.warn("channelRuntime not available — AI dispatch disabled");
+        }
+
         // Start message loop (runs in background until stop)
-        const loopPromise = client.runMessageLoop(async (msg: T.Message, chat: T.FullChat) => {
+        const currentClient = client;
+        const loopPromise = currentClient.runMessageLoop(async (msg: T.Message, chat: T.FullChat) => {
           if (shouldSkipChat(chat.chatType)) return;
 
-          const senderEmail = await client.getContactEmail(msg.fromId);
+          const senderEmail = await currentClient.getContactEmail(msg.fromId);
 
-          const context = buildInboundContext({
+          const inbound = buildInboundContext({
             text: msg.text,
             senderEmail,
             chatType: chat.chatType,
@@ -121,25 +249,72 @@ export function createDeltaChatChannel(client: DeltaChatClient) {
             fileMime: msg.fileMime,
           });
 
-          await runtime.dispatch(context);
+          if (!ctx.channelRuntime) {
+            log.warn(`No channelRuntime — dropping message from ${senderEmail}`);
+            return;
+          }
+
+          // Build MsgContext for OpenClaw dispatch
+          const isGroup = inbound.chatType === "group";
+          const msgContext: Record<string, unknown> = {
+            Body: inbound.text,
+            From: inbound.senderEmail,
+            SessionKey: inbound.sessionKey,
+            AccountId: ctx.accountId,
+            ChatType: isGroup ? "group" : "direct",
+            Provider: "deltachat",
+            SenderId: inbound.senderEmail,
+            SenderName: inbound.senderEmail,
+            Timestamp: Date.now(),
+          };
+
+          // Attach media if present
+          if (inbound.media) {
+            msgContext.MediaPath = inbound.media.path;
+            msgContext.MediaType = inbound.media.mimeType;
+          }
+
+          // Dispatch AI reply
+          await ctx.channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
+            ctx: ctx.channelRuntime.reply.finalizeInboundContext(msgContext),
+            cfg: ctx.cfg,
+            dispatcherOptions: {
+              deliver: async (payload, _info) => {
+                try {
+                  if (payload.text) {
+                    await currentClient.sendText(inbound.chatId, payload.text);
+                  }
+                  if (payload.mediaUrl) {
+                    await currentClient.sendFile(inbound.chatId, null, payload.mediaUrl);
+                  }
+                } catch (err) {
+                  log.error(`Failed to deliver reply to chat ${inbound.chatId}: ${err}`);
+                }
+              },
+              onError: (err) => {
+                log.error(`Reply dispatch error: ${err}`);
+              },
+            },
+          });
         });
-        loopPromise.catch((err) => console.error("[deltachat] Message loop crashed:", err));
+
+        loopPromise.catch((err) => log.error(`Message loop crashed: ${err}`));
       },
 
-      stop: async () => {
-        await client.stop();
+      stopAccount: async (_ctx: ChannelGatewayContext): Promise<void> => {
+        if (client) {
+          await client.stop();
+          client = null;
+        }
       },
     },
 
-    // SecurityAdapter is omitted — OpenClaw core provides default security
-    // behavior based on session keys and the gateway-level dmPolicy/groupPolicy
-    // settings. The plugin does not need to implement custom security logic.
-
     groups: {
-      getMembers: async (sessionKey: string) => {
-        const chatId = await client.getChatBySessionKey(sessionKey);
-        return client.getChatMembers(chatId);
-      },
+      resolveRequireMention: (_params: ChannelGroupContext): boolean | undefined => false,
+    },
+
+    threading: {
+      resolveReplyToMode: (): "off" => "off",
     },
   };
 }
