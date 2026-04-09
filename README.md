@@ -1,5 +1,7 @@
 # openclaw-channel-deltachat
 
+This was a quick and dirty experiment to get Delta Chat to work with open claw. I decided to pursue a more mature version of this with Claude Code channels, but if this starting point is useful to folks, please feel free to fork or send improvements.
+
 An [OpenClaw](https://openclaw.ai) channel plugin that bridges [Delta Chat](https://delta.chat) messaging to OpenClaw's AI agent pipeline.
 
 Users interact with OpenClaw agents via end-to-end encrypted Delta Chat messages.
